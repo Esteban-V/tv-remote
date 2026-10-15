@@ -11,10 +11,15 @@ final class TV: NSObject, ObservableObject, URLSessionDelegate {
     @Published var status = "Disconnected"
 
     private var task: URLSessionWebSocketTask?
-    private var ready = false
+    @Published private(set) var ready = false
     private var pending: [() -> Void] = []
     private var retryUntil = Date.distantPast
     private lazy var session = URLSession(configuration: .default, delegate: self, delegateQueue: .main)
+
+    // Called when the panel opens so the first press doesn't wait for the handshake.
+    func warmUp() {
+        if !ip.isEmpty, !ready { connect() }
+    }
 
     func send(_ key: String) {
         if key == "KEY_POWER", !ready { wake() }
@@ -253,6 +258,7 @@ struct RemoteView: View {
         }
         .padding()
         .frame(width: 240)
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in tv.warmUp() }
     }
 }
 
@@ -260,8 +266,10 @@ struct RemoteView: View {
 struct TVRemoteApp: App {
     @StateObject private var tv = TV()
     var body: some Scene {
-        MenuBarExtra("TV Remote", systemImage: "tv") {
+        MenuBarExtra {
             RemoteView().environmentObject(tv)
+        } label: {
+            Image(systemName: tv.ready ? "tv.fill" : "tv")
         }
         .menuBarExtraStyle(.window)
     }

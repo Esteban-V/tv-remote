@@ -6,7 +6,7 @@ APP=TVRemote.app
 VERSION=${VERSION:-1.0}
 rm -rf "$APP" build
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" build
-cp icons/* "$APP/Contents/Resources/"
+cp icons/* AppIcon.icns "$APP/Contents/Resources/"
 for arch in arm64 x86_64; do
   swiftc -O -target $arch-apple-macos14 -swift-version 5 -parse-as-library TVRemote.swift -o build/TVRemote-$arch
 done
@@ -17,6 +17,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
 <plist version="1.0"><dict>
   <key>CFBundleIdentifier</key><string>local.tvremote</string>
   <key>CFBundleName</key><string>TV Remote</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleExecutable</key><string>TVRemote</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>

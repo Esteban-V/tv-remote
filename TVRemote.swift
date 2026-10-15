@@ -145,6 +145,8 @@ struct RemoteView: View {
 
     // App IDs checked against this TV via GET :8001/api/v2/applications/<id>.
     static let shortcuts: [(name: String, icon: String, app: String?, key: String?)] = [
+        ("Xbox", "xbox", nil, "KEY_HDMI2"),
+        ("Switch", "switch", nil, "KEY_HDMI1"),
         ("Netflix", "netflix", "3201907018807", nil),
         ("YouTube", "youtube", "111299001912", nil),
         ("Stremio", "stremio", "3202306031311", nil),

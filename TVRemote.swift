@@ -23,6 +23,12 @@ final class TV: NSObject, ObservableObject, URLSessionDelegate {
 
     func launch(_ appId: String) { app("POST", appId, done: "Launched") }
 
+    // Only closes the apps listed in the remote; Device Care has no remote API.
+    func cleanup(_ appIds: [String]) {
+        appIds.forEach { app("DELETE", $0, done: "Closed apps") }
+        send("KEY_HOME")
+    }
+
     private func app(_ method: String, _ appId: String, done: String) {
         guard let url = URL(string: "http://\(ip):8001/api/v2/applications/\(appId)") else { return }
         var req = URLRequest(url: url)
@@ -197,6 +203,10 @@ struct RemoteView: View {
                     }
                     .buttonStyle(.plain).help(s.name)
                 }
+                Button { tv.cleanup(Self.shortcuts.compactMap(\.app)) } label: {
+                    Image(systemName: "sparkles").font(.title3).frame(width: 32, height: 32)
+                }
+                .buttonStyle(.bordered).help("Close all apps")
             }
             Divider()
             HStack {

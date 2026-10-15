@@ -10,7 +10,21 @@ Built against a 2025 S95F, but anything running Tizen (roughly 2016 and newer) s
 - One-click launch for Netflix, YouTube, Stremio and Spotify
 - A cleanup button that closes those apps and returns to Home
 - Power on via Wake-on-LAN, power off over the network
-- Works from the keyboard while the panel is open
+- Hold volume, channel or the arrows to repeat, same as the real remote
+- Type into the TV's on-screen keyboard from the Mac (the keyboard icon), which beats spelling out a search with arrows
+- Buttons pressed before the TV is awake get queued and sent once it connects, so "power, then Netflix" just works
+- The menu bar icon fills in when connected
+- Optional open at login (in the gear menu)
+
+Global shortcuts, work anywhere:
+
+| Key | Does |
+| --- | --- |
+| ⌃⌥↑ / ⌃⌥↓ | volume up / down |
+| ⌃⌥M | mute |
+| ⌃⌥space | play / pause |
+
+And while the panel is open:
 
 | Key | Does |
 | --- | --- |
@@ -60,7 +74,19 @@ Pushing a `v*` tag builds and publishes a release through GitHub Actions.
 
 ## Adding apps
 
-App IDs are hardcoded in `shortcuts` near the top of `RemoteView`. To check whether an ID exists on your TV:
+The built-in shortcuts are the ones on my TV. To use your own, create `~/Library/Application Support/TVRemote/apps.json` and restart the app:
+
+```json
+[
+  { "name": "Netflix", "app": "3201907018807" },
+  { "name": "Plex", "app": "3201512006963", "icon": "~/Pictures/plex.png" },
+  { "name": "HDMI 3", "key": "KEY_HDMI3" }
+]
+```
+
+Each entry needs either an `app` ID or a remote `key`. `icon` is optional. Netflix, YouTube, Stremio, Spotify, Xbox and Switch have bundled icons; anything else gets its first letter unless you point `icon` at an image.
+
+To check whether an ID exists on your TV:
 
 ```sh
 curl http://<tv-ip>:8001/api/v2/applications/<app-id>

@@ -1,0 +1,35 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          [[ "$GITHUB_REF" == refs/tags/v* ]] && export VERSION="${GITHUB_REF_NAME#v}"
+          ./build.sh
+
+      - name: Zip
+        run: ditto -c -k --keepParent TVRemote.app TVRemote.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TVRemote
+          path: TVRemote.zip
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" TVRemote.zip --title "$GITHUB_REF_NAME" --generate-notes

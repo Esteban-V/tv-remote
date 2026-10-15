@@ -27,6 +27,11 @@ final class TV: NSObject, ObservableObject, URLSessionDelegate {
         whenConnected { self.write(key) }
     }
 
+    // Press/Release lets the TV auto-repeat while a button is held, like the physical remote.
+    func hold(_ key: String, _ down: Bool) {
+        whenConnected { self.write(key, down ? "Press" : "Release") }
+    }
+
     func launch(_ appId: String) { whenConnected { self.app("POST", appId, done: "Launched") } }
 
     // Only closes the apps listed in the remote; Device Care has no remote API.
@@ -97,13 +102,13 @@ final class TV: NSObject, ObservableObject, URLSessionDelegate {
         }
     }
 
-    private func write(_ key: String) {
-        let msg = #"{"method":"ms.remote.control","params":{"Cmd":"Click","DataOfCmd":"\#(key)","Option":"false","TypeOfRemote":"SendRemoteKey"}}"#
+    private func write(_ key: String, _ cmd: String = "Click") {
+        let msg = #"{"method":"ms.remote.control","params":{"Cmd":"\#(cmd)","DataOfCmd":"\#(key)","Option":"false","TypeOfRemote":"SendRemoteKey"}}"#
         task?.send(.string(msg)) { [weak self] err in
             guard let err, let self else { return }
             Task { @MainActor in
                 // Connection went stale (e.g. TV slept); requeue so the key isn't lost.
-                self.pending.append { self.write(key) }
+                self.pending.append { self.write(key, cmd) }
                 self.retryUntil = Date().addingTimeInterval(30)
                 self.drop("Error: \(err.localizedDescription)")
             }
@@ -158,13 +163,37 @@ struct Key: View {
     let symbol: String, key: String
     var shortcut: KeyEquivalent? = nil
     var tint: Color = .primary
+    var repeats = false
+    @State private var held = false
 
     var body: some View {
-        let b = Button { tv.send(key) } label: {
+        let b = Button {
+            // Mouse holds already sent Press/Release; keyboard shortcuts and plain keys land here.
+            if !held { tv.send(key) }
+            held = false
+        } label: {
             Image(systemName: symbol).font(.title3).frame(width: 44, height: 36)
         }
-        .buttonStyle(.bordered).tint(tint).help(key)
+        .buttonStyle(KeyStyle(tint: tint) { down in
+            guard repeats else { return }
+            if down { held = true }
+            tv.hold(key, down)
+        })
+        .help(key)
         if let shortcut { b.keyboardShortcut(shortcut, modifiers: []) } else { b }
+    }
+}
+
+struct KeyStyle: ButtonStyle {
+    let tint: Color
+    let onPress: (Bool) -> Void
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(tint)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(configuration.isPressed ? 0.25 : 0.1)))
+            .contentShape(Rectangle())
+            .onChange(of: configuration.isPressed) { _, down in onPress(down) }
     }
 }
 
@@ -196,13 +225,13 @@ struct RemoteView: View {
                 Key(symbol: "info.circle", key: "KEY_INFO")
             }
             Divider()
-            Key(symbol: "chevron.up", key: "KEY_UP", shortcut: .upArrow)
+            Key(symbol: "chevron.up", key: "KEY_UP", shortcut: .upArrow, repeats: true)
             HStack {
-                Key(symbol: "chevron.left", key: "KEY_LEFT", shortcut: .leftArrow)
+                Key(symbol: "chevron.left", key: "KEY_LEFT", shortcut: .leftArrow, repeats: true)
                 Key(symbol: "circle.fill", key: "KEY_ENTER", shortcut: .return)
-                Key(symbol: "chevron.right", key: "KEY_RIGHT", shortcut: .rightArrow)
+                Key(symbol: "chevron.right", key: "KEY_RIGHT", shortcut: .rightArrow, repeats: true)
             }
-            Key(symbol: "chevron.down", key: "KEY_DOWN", shortcut: .downArrow)
+            Key(symbol: "chevron.down", key: "KEY_DOWN", shortcut: .downArrow, repeats: true)
             HStack {
                 Key(symbol: "arrow.uturn.backward", key: "KEY_RETURN", shortcut: .delete)
                 Key(symbol: "xmark", key: "KEY_EXIT", shortcut: .escape)
@@ -210,14 +239,14 @@ struct RemoteView: View {
             Divider()
             HStack(spacing: 20) {
                 VStack {
-                    Key(symbol: "speaker.plus", key: "KEY_VOLUP", shortcut: "=")
+                    Key(symbol: "speaker.plus", key: "KEY_VOLUP", shortcut: "=", repeats: true)
                     Key(symbol: "speaker.slash", key: "KEY_MUTE", shortcut: "0")
-                    Key(symbol: "speaker.minus", key: "KEY_VOLDOWN", shortcut: "-")
+                    Key(symbol: "speaker.minus", key: "KEY_VOLDOWN", shortcut: "-", repeats: true)
                 }
                 VStack {
-                    Key(symbol: "chevron.up.2", key: "KEY_CHUP")
+                    Key(symbol: "chevron.up.2", key: "KEY_CHUP", repeats: true)
                     Text("CH").font(.caption).frame(height: 36)
-                    Key(symbol: "chevron.down.2", key: "KEY_CHDOWN")
+                    Key(symbol: "chevron.down.2", key: "KEY_CHDOWN", repeats: true)
                 }
             }
             HStack {

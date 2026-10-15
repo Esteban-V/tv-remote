@@ -1,5 +1,6 @@
 import SwiftUI
 import Darwin
+import ServiceManagement
 
 // Samsung Tizen remote: wss://<ip>:8002/api/v2/channels/samsung.remote.control
 // First connect shows an "Allow" prompt on the TV; the returned token is saved so it never asks again.
@@ -170,6 +171,7 @@ struct Key: View {
 struct RemoteView: View {
     @EnvironmentObject var tv: TV
     @State private var showSettings = false
+    @State private var openAtLogin = SMAppService.mainApp.status == .enabled
 
     // App IDs checked against this TV via GET :8001/api/v2/applications/<id>.
     static let shortcuts: [(name: String, icon: String, app: String?, key: String?)] = [
@@ -248,6 +250,10 @@ struct RemoteView: View {
                         VStack(alignment: .leading) {
                             TextField("TV IP (e.g. 192.168.1.50)", text: $tv.ip)
                             TextField("TV MAC for power-on (optional)", text: $tv.mac)
+                            Toggle("Open at login", isOn: $openAtLogin)
+                                .onChange(of: openAtLogin) { _, on in
+                                    try? on ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()
+                                }
                             Button("Quit TV Remote") { NSApp.terminate(nil) }
                         }
                         .textFieldStyle(.roundedBorder)

@@ -1,6 +1,7 @@
 import SwiftUI
 import Darwin
 import ServiceManagement
+import Carbon.HIToolbox
 
 // Samsung Tizen remote: wss://<ip>:8002/api/v2/channels/samsung.remote.control
 // First connect shows an "Allow" prompt on the TV; the returned token is saved so it never asks again.
@@ -16,6 +17,11 @@ final class TV: NSObject, ObservableObject, URLSessionDelegate {
     private var pending: [() -> Void] = []
     private var retryUntil = Date.distantPast
     private lazy var session = URLSession(configuration: .default, delegate: self, delegateQueue: .main)
+
+    override init() {
+        super.init()
+        registerHotKeys { [weak self] key in self?.send(key) }
+    }
 
     // Called when the panel opens so the first press doesn't wait for the handshake.
     func warmUp() {
@@ -162,6 +168,32 @@ final class TV: NSObject, ObservableObject, URLSessionDelegate {
                                 completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         if let trust = c.protectionSpace.serverTrust { completionHandler(.useCredential, URLCredential(trust: trust)) }
         else { completionHandler(.performDefaultHandling, nil) }
+    }
+}
+
+// System-wide ⌃⌥ shortcuts. Carbon hotkeys need no Accessibility permission, unlike event monitors.
+private let hotKeys: [(code: Int, key: String)] = [
+    (kVK_UpArrow, "KEY_VOLUP"), (kVK_DownArrow, "KEY_VOLDOWN"),
+    (kVK_ANSI_M, "KEY_MUTE"), (kVK_Space, "KEY_PLAY"),
+]
+private var onHotKey: ((String) -> Void)?
+
+private func registerHotKeys(_ handler: @escaping (String) -> Void) {
+    onHotKey = handler
+    var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+    InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
+        var id = EventHotKeyID()
+        GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                          nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
+        let key = hotKeys[Int(id.id)].key
+        DispatchQueue.main.async { onHotKey?(key) }
+        return noErr
+    }, 1, &spec, nil, nil)
+    for (i, hk) in hotKeys.enumerated() {
+        var ref: EventHotKeyRef?
+        RegisterEventHotKey(UInt32(hk.code), UInt32(controlKey | optionKey),
+                            EventHotKeyID(signature: OSType(0x5456524D), id: UInt32(i)), // 'TVRM'
+                            GetApplicationEventTarget(), 0, &ref)
     }
 }
 

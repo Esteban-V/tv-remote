@@ -21,6 +21,17 @@ final class TV: NSObject, ObservableObject, URLSessionDelegate {
         if ready { write(key) } else { pending.append(key); connect() }
     }
 
+    func launch(_ appId: String) { app("POST", appId, done: "Launched") }
+
+    private func app(_ method: String, _ appId: String, done: String) {
+        guard let url = URL(string: "http://\(ip):8001/api/v2/applications/\(appId)") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = method
+        URLSession.shared.dataTask(with: req) { [weak self] _, _, err in
+            Task { @MainActor in self?.status = err.map { "Error: \($0.localizedDescription)" } ?? done }
+        }.resume()
+    }
+
     private func connect() {
         guard task == nil else { return }
         let name = Data("Mac Remote".utf8).base64EncodedString()
@@ -126,6 +137,14 @@ struct RemoteView: View {
     @EnvironmentObject var tv: TV
     @State private var showSettings = false
 
+    // App IDs checked against this TV via GET :8001/api/v2/applications/<id>.
+    static let shortcuts: [(name: String, icon: String, app: String?, key: String?)] = [
+        ("Netflix", "netflix", "3201907018807", nil),
+        ("YouTube", "youtube", "111299001912", nil),
+        ("Stremio", "stremio", "3202306031311", nil),
+        ("Spotify", "spotify", "3201606009684", nil),
+    ]
+
     var body: some View {
         VStack(spacing: 10) {
             HStack {
@@ -167,6 +186,17 @@ struct RemoteView: View {
                 Key(symbol: "backward.fill", key: "KEY_REWIND")
                 Key(symbol: "playpause.fill", key: "KEY_PLAY", shortcut: " ")
                 Key(symbol: "forward.fill", key: "KEY_FF")
+            }
+            Divider()
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(40)), count: 4), spacing: 8) {
+                ForEach(Self.shortcuts, id: \.name) { s in
+                    Button { s.app.map(tv.launch) ?? tv.send(s.key!) } label: {
+                        Image(nsImage: Bundle.main.image(forResource: s.icon) ?? NSImage())
+                            .resizable().frame(width: 32, height: 32)
+                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                    }
+                    .buttonStyle(.plain).help(s.name)
+                }
             }
             Divider()
             HStack {

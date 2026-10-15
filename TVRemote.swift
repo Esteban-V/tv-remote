@@ -12,21 +12,31 @@ final class TV: NSObject, ObservableObject, URLSessionDelegate {
 
     private var task: URLSessionWebSocketTask?
     private var ready = false
-    private var pending: [String] = []
+    private var pending: [() -> Void] = []
+    private var retryUntil = Date.distantPast
     private lazy var session = URLSession(configuration: .default, delegate: self, delegateQueue: .main)
 
     func send(_ key: String) {
         if key == "KEY_POWER", !ready { wake() }
-        guard !ip.isEmpty else { status = "Set the TV IP below"; return }
-        if ready { write(key) } else { pending.append(key); connect() }
+        whenConnected { self.write(key) }
     }
 
-    func launch(_ appId: String) { app("POST", appId, done: "Launched") }
+    func launch(_ appId: String) { whenConnected { self.app("POST", appId, done: "Launched") } }
 
     // Only closes the apps listed in the remote; Device Care has no remote API.
     func cleanup(_ appIds: [String]) {
-        appIds.forEach { app("DELETE", $0, done: "Closed apps") }
+        whenConnected { appIds.forEach { self.app("DELETE", $0, done: "Closed apps") } }
         send("KEY_HOME")
+    }
+
+    // Commands pressed while disconnected run in order once the TV answers.
+    // 30s of retries covers a boot from standby after Wake-on-LAN; raise it if your TV is slower.
+    private func whenConnected(_ command: @escaping () -> Void) {
+        guard !ip.isEmpty else { status = "Set the TV IP in settings"; return }
+        if ready { return command() }
+        pending.append(command)
+        retryUntil = Date().addingTimeInterval(30)
+        connect()
     }
 
     private func app(_ method: String, _ appId: String, done: String) {
@@ -71,9 +81,11 @@ final class TV: NSObject, ObservableObject, URLSessionDelegate {
             if let t = (json["data"] as? [String: Any])?["token"] as? String { token = t }
             ready = true
             status = "Connected"
-            pending.forEach(write)
+            let queued = pending
             pending = []
+            queued.forEach { $0() }
         case "ms.channel.unauthorized":
+            pending = []
             drop("Denied on TV")
         default: break
         }
@@ -82,7 +94,13 @@ final class TV: NSObject, ObservableObject, URLSessionDelegate {
     private func write(_ key: String) {
         let msg = #"{"method":"ms.remote.control","params":{"Cmd":"Click","DataOfCmd":"\#(key)","Option":"false","TypeOfRemote":"SendRemoteKey"}}"#
         task?.send(.string(msg)) { [weak self] err in
-            if let err { Task { @MainActor in self?.drop("Error: \(err.localizedDescription)") } }
+            guard let err, let self else { return }
+            Task { @MainActor in
+                // Connection went stale (e.g. TV slept); requeue so the key isn't lost.
+                self.pending.append { self.write(key) }
+                self.retryUntil = Date().addingTimeInterval(30)
+                self.drop("Error: \(err.localizedDescription)")
+            }
         }
     }
 
@@ -90,8 +108,13 @@ final class TV: NSObject, ObservableObject, URLSessionDelegate {
         task?.cancel()
         task = nil
         ready = false
-        pending = []
-        status = msg
+        if !pending.isEmpty, Date() < retryUntil {
+            status = "Waiting for TV… (\(pending.count) queued)"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.connect() }
+        } else {
+            pending = []
+            status = msg
+        }
     }
 
     // Wake-on-LAN magic packet; needs "Power On with Mobile" enabled on the TV.

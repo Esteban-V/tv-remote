@@ -32,6 +32,13 @@ final class TV: NSObject, ObservableObject, URLSessionDelegate {
         whenConnected { self.write(key, down ? "Press" : "Release") }
     }
 
+    // Fills the TV's on-screen keyboard; only works while one is open.
+    func type(_ text: String) {
+        let b64 = Data(text.utf8).base64EncodedString()
+        let msg = #"{"method":"ms.remote.control","params":{"Cmd":"\#(b64)","DataOfCmd":"base64","TypeOfRemote":"SendInputString"}}"#
+        whenConnected { self.task?.send(.string(msg)) { _ in } }
+    }
+
     func launch(_ appId: String) { whenConnected { self.app("POST", appId, done: "Launched") } }
 
     // Only closes the apps listed in the remote; Device Care has no remote API.
@@ -200,6 +207,8 @@ struct KeyStyle: ButtonStyle {
 struct RemoteView: View {
     @EnvironmentObject var tv: TV
     @State private var showSettings = false
+    @State private var showKeyboard = false
+    @State private var typed = ""
     @State private var openAtLogin = SMAppService.mainApp.status == .enabled
 
     // App IDs checked against this TV via GET :8001/api/v2/applications/<id>.
@@ -273,6 +282,16 @@ struct RemoteView: View {
             HStack {
                 Text(tv.status).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 Spacer()
+                Button { showKeyboard.toggle() } label: { Image(systemName: "keyboard") }
+                    .buttonStyle(.plain)
+                    .help("Type on TV")
+                    .popover(isPresented: $showKeyboard, arrowEdge: .bottom) {
+                        TextField("Type, then press return", text: $typed)
+                            .onSubmit { tv.type(typed); typed = "" }
+                            .textFieldStyle(.roundedBorder)
+                            .padding()
+                            .frame(width: 240)
+                    }
                 Button { showSettings.toggle() } label: { Image(systemName: "gearshape") }
                     .buttonStyle(.plain)
                     .popover(isPresented: $showSettings, arrowEdge: .bottom) {

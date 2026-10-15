@@ -236,6 +236,18 @@ struct KeyStyle: ButtonStyle {
     }
 }
 
+struct Shortcut: Decodable {
+    let name: String
+    var app: String? = nil   // launches a TV app by ID
+    var key: String? = nil   // or sends a remote key
+    var icon: String? = nil  // bundled icon name or an image path; defaults to the lowercased name
+
+    var image: NSImage? {
+        let icon = icon ?? name.lowercased()
+        return Bundle.main.image(forResource: icon) ?? NSImage(contentsOfFile: (icon as NSString).expandingTildeInPath)
+    }
+}
+
 struct RemoteView: View {
     @EnvironmentObject var tv: TV
     @State private var showSettings = false
@@ -243,15 +255,22 @@ struct RemoteView: View {
     @State private var typed = ""
     @State private var openAtLogin = SMAppService.mainApp.status == .enabled
 
-    // App IDs checked against this TV via GET :8001/api/v2/applications/<id>.
-    static let shortcuts: [(name: String, icon: String, app: String?, key: String?)] = [
-        ("Xbox", "xbox", nil, "KEY_HDMI2"),
-        ("Switch", "switch", nil, "KEY_HDMI1"),
-        ("Netflix", "netflix", "3201907018807", nil),
-        ("YouTube", "youtube", "111299001912", nil),
-        ("Stremio", "stremio", "3202306031311", nil),
-        ("Spotify", "spotify", "3201606009684", nil),
-    ]
+    // Defaults were checked against an S95F via GET :8001/api/v2/applications/<id>.
+    // Override with a JSON array of {name, app or key, icon?} in ~/Library/Application Support/TVRemote/apps.json.
+    static let shortcuts: [Shortcut] = {
+        let file = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("TVRemote/apps.json")
+        if let data = try? Data(contentsOf: file),
+           let custom = try? JSONDecoder().decode([Shortcut].self, from: data) { return custom }
+        return [
+            Shortcut(name: "Xbox", key: "KEY_HDMI2"),
+            Shortcut(name: "Switch", key: "KEY_HDMI1"),
+            Shortcut(name: "Netflix", app: "3201907018807"),
+            Shortcut(name: "YouTube", app: "111299001912"),
+            Shortcut(name: "Stremio", app: "3202306031311"),
+            Shortcut(name: "Spotify", app: "3201606009684"),
+        ]
+    }()
 
     var body: some View {
         VStack(spacing: 10) {
@@ -298,10 +317,19 @@ struct RemoteView: View {
             Divider()
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(40)), count: 4), spacing: 8) {
                 ForEach(Self.shortcuts, id: \.name) { s in
-                    Button { s.app.map(tv.launch) ?? tv.send(s.key!) } label: {
-                        Image(nsImage: Bundle.main.image(forResource: s.icon) ?? NSImage())
-                            .resizable().frame(width: 32, height: 32)
-                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                    Button {
+                        if let app = s.app { tv.launch(app) } else if let key = s.key { tv.send(key) }
+                    } label: {
+                        Group {
+                            if let image = s.image {
+                                Image(nsImage: image).resizable()
+                            } else {
+                                Text(s.name.prefix(1)).font(.title2.bold()).frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .background(Color.primary.opacity(0.1))
+                            }
+                        }
+                        .frame(width: 32, height: 32)
+                        .clipShape(RoundedRectangle(cornerRadius: 7))
                     }
                     .buttonStyle(.plain).help(s.name)
                 }
